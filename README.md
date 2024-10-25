@@ -1,8 +1,8 @@
 **The English documentation is shown below the Chinese version.**
 
-这是一个Python的轻量级HTTP文件服务器，可以取代python自带的`http.server`模块，基于`socket`模块实现。
-服务器基于`mimetypes`库，自动根据扩展名判断文件的类型`content-type`，并基于`chardetect`库自动检测编码；
-此外服务器实现了分块发送响应数据，实现了限制下载速度和断点续传功能，适合传输大文件，并能处理POST请求提交的表单。
+这是一个Python的轻量级HTTP文件服务器，可以取代python自带的`http.server`模块，基于`socket`模块实现。  
+服务器基于`mimetypes`库，自动根据扩展名判断文件的类型`content-type`，并基于`chardetect`库自动检测编码；  
+此外服务器实现了分块发送响应数据，实现了限制下载速度和断点续传功能，适合传输大文件，并能处理POST请求提交的表单。  
 
 ## 用法
 
