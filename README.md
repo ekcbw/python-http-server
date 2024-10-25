@@ -44,9 +44,9 @@
    该服务器具备处理POST请求的基本功能。这意味着用户可以通过表单提交数据，服务器能够正确接收并处理这些请求。
 
 
-This is a lightweight HTTP file server implemented in Python, serving as a replacement for the built-in `http.server` module and based on the `socket` module.
-The server utilizes the `mimetypes` library to automatically determine the file's content type based on its file extension, and uses the `chardet` library for automatic encoding detection.
-In addition, the server implements chunked response data transfer, enabling download speed limits and resume capabilities, making it suitable for large file transfers. It can also handle POST requests submitted by forms.
+This is a lightweight HTTP file server implemented in Python, serving as a replacement for the built-in `http.server` module and based on the `socket` module.  
+The server utilizes the `mimetypes` library to automatically determine the file's content type based on its file extension, and uses the `chardet` library for automatic encoding detection.  
+In addition, the server implements chunked response data transfer, enabling download speed limits and resume capabilities, making it suitable for large file transfers. It can also handle POST requests submitted by forms.  
 
 ## Usage
 
