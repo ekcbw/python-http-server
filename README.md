@@ -31,8 +31,8 @@
 
 ## 功能
 
-1. **基于扩展名的Content-Type**：
-   该服务器使用 `mimetypes` 库自动判断文件的内容类型。这意味着客户端在请求文件时，服务器会根据文件的扩展名来设置 `Content-Type` 头。
+1. **基于扩展名自动检测Content-Type**：
+   该服务器使用 `mimetypes` 库自动判断文件的内容类型。客户端在请求文件时，服务器会根据文件的扩展名来设置 `Content-Type` 头。
 
 2. **自动编码检测**：
    服务器使用 `chardet` 库来自动检测文件的编码格式。这对于处理各种文本文件非常有用，可以确保正确读取和返回文件内容。
@@ -41,7 +41,10 @@
    服务器实现了分块发送功能，这使得它能够限制下载速度和支持断点续传。这对于共享大文件非常实用，可以提高用户的体验。
 
 4. **处理POST请求**：
-   该服务器具备处理POST请求的基本功能。这意味着用户可以通过表单提交数据，服务器能够正确接收并处理这些请求。
+   服务器具备处理POST请求的基本功能。这意味着用户可以通过表单提交数据，服务器能够正确接收并处理这些请求。
+
+5. **安全性**：
+   服务器能检测`..`等常见的上级目录攻击格式，避免了目录遍历等攻击。
 
 
 This is a lightweight HTTP file server implemented in Python, serving as a replacement for the built-in `http.server` module and based on the `socket` module.  
@@ -75,7 +78,7 @@ In addition, the server implements chunked response data transfer, enabling down
 
 ## Features
 
-1. **Content-Type Based on Extension**:
+1. **Content-Type Detection Based on Extension**:
    The server uses the `mimetypes` library to automatically determine the content type of files. This means that when a client requests a file, the server sets the `Content-Type` header based on the file's extension.
 
 2. **Automatic Encoding Detection**:
@@ -86,3 +89,6 @@ In addition, the server implements chunked response data transfer, enabling down
 
 4. **Handling POST Requests**:
    The server has basic capabilities for handling POST requests. This means that users can submit data via forms, and the server can correctly receive and process these requests.
+
+5. **Security**:
+   The server can detect common directory traversal attack patterns such as `..`, preventing attacks like directory traversal.
