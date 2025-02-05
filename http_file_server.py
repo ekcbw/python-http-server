@@ -145,8 +145,8 @@ def getcontent(dir,query={},fragment=None,start=None,end=None): # 根据url的�
 <meta http-equiv="content-type" content="text/html;charset=utf-8">
 <title>{dir}</title>
 </head><body>
-<video controls name="media">  
-    <source src="{dir}" type="{mime_type}">    
+<video controls name="media" preload="auto">
+    <source src="/{dir}" type="{mime_type}">
 </video>
 </body></html>""".encode()
         return response
