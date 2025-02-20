@@ -105,7 +105,7 @@ def get_dir_content(dir):
         response += f'\n<p><a href="/{dir}/..">[上级目录]</a></p>'.encode()
     # 依次显示各个子文件、目录
     for sub in subdirs:
-        response += f'\n<p><a href="/{dir}/{sub}">[目录]{sub}</a></p>'.encode()
+        response += f'\n<p><a href="/{dir}/{sub}">[{sub}]</a></p>'.encode()
     for sub in subfiles:
         size=convert_bytes(os.path.getsize(os.path.join(path,sub)))
         mime_type=get_mimetype(sub) or ""
@@ -162,7 +162,7 @@ def getcontent(dir,query={},fragment=None,start=None,end=None): # 根据url的�
             for f in os.listdir(path):
                 if f.split(".")[0].lower()=="index":
                     file = f
-                    if f.split(".")[1].lower() in ("htm","html"): # 当有多个index文件时html文件优先
+                    if f.split(".")[-1].lower() in ("htm","html"): # 当有多个index文件时html文件优先
                         break
             if file is not None:
                 path = os.path.join(path,file)
@@ -329,8 +329,6 @@ if __name__ == "__main__":
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("", PORT))
     sock.listen(128) # 监听，参数为最大等待连接数
-    import webbrowser
-    webbrowser.open('http://127.0.0.1:%d/'%PORT)
 
     # 单线程模式，一次处理一个客户端
     #while True:
