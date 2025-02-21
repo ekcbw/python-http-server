@@ -260,7 +260,7 @@ def send_response(sock,response,address):
         sock.send(chunk)
     if SEND_SPEED > 0 and total >= SEND_SPEED*(1<<20) \
         or SEND_SPEED <= 0 and total >= 1<<27: # 如果预计发送时间超过1秒，或不限速时大于128MB
-        print(address,"较大响应 (%s) 发送完毕" % convert_bytes(total))
+        print(time.asctime(),address,"较大响应 (%s) 发送完毕" % convert_bytes(total))
 
 def handle_post(sock,req_head,req_info,content):
     length = int(req_info.get('Content-Length',-1))
@@ -281,14 +281,14 @@ def handle_post(sock,req_head,req_info,content):
         else:
             split=content.splitlines()[1:-1]
             content = b"\n".join(split) # 去除第一行和末尾的WebKitFormBoundary标识
-        print(address,"提交文件数据:",content)
+        print(time.asctime(),address,"提交文件数据:",content)
     else:
         if len(content)<length: # post含有多个tcp数据包时
             return HEAD_100 # 让客户端继续发送数据
         else:
             form=parse_qs(content.decode("utf-8"),
                           keep_blank_values=True,encoding="utf-8")
-            print(address,"提交数据:",form)
+            print(time.asctime(),address,"提交数据:",form)
 
     #dir=parse_head(req_head)[0]
     return HEAD_OK + """
@@ -324,12 +324,12 @@ def handle_get(req_head,req_info):
         start,end=range_.split("-")
         start = int(start) if start else None
         end = int(end) if end else None
-        print(address,"访问URL: %s (从 %s 到 %s 断点续传)" % (url,
+        print(time.asctime(),address,"访问URL: %s (从 %s 到 %s 断点续传)" % (url,
             convert_bytes(start) if start is not None else None,
             convert_bytes(end) if end is not None else "末尾"))
         return getcontent(dir,query,fragment,start,end)
     else:
-        print(address,"访问URL:",url)
+        print(time.asctime(),address,"访问URL:",url)
         return getcontent(dir,query,fragment) # 获取目录的数据
 
 def handle_client(sock, address):# 处理客户端请求
@@ -348,7 +348,7 @@ def handle_client(sock, address):# 处理客户端请求
 
     try:send_response(sock,response,address) # 向客户端分段发送响应数据
     except ConnectionError as err:
-        print(address,"连接异常 (%s): %s" % (type(err).__name__,str(err)))
+        print(time.asctime(),address,"连接异常 (%s): %s" % (type(err).__name__,str(err)))
     sock.close() # 关闭客户端连接
 
 def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输出错误信息
@@ -358,7 +358,7 @@ def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输�
 
 PORT=int(sys.argv[1]) if len(sys.argv)==2 else 80 # 80为HTTP的默认端口
 if __name__ == "__main__":
-    log_file=AutoFlushWrapper(open(LOG_FILE,"w",encoding="utf-8"),1)
+    log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),1)
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
     log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"w",encoding="utf-8"),1)
     sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
@@ -377,7 +377,10 @@ if __name__ == "__main__":
     #    handle_client(client_sock, address)
     # 多线程
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        while True:
-            client_sock, address = sock.accept()
-            executor.submit(handle_client_thread, client_sock, address)
-    sock.close()
+        try:
+            while True:
+                client_sock, address = sock.accept()
+                executor.submit(handle_client_thread, client_sock, address)
+        finally:
+            sock.close()
+            sys.stdout.flush();sys.stderr.flush()
