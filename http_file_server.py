@@ -365,7 +365,7 @@ if __name__ == "__main__":
 
     host = socket.gethostname()
     ips = socket.gethostbyname_ex(host)[2] # 或者socket.gethostbyname(host)
-    print("服务器的IP:",ips)
+    print("\n服务器的IP:",ips)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("", PORT))
