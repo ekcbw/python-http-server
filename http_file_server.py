@@ -16,6 +16,42 @@ HEAD_404 = b"HTTP/1.1 404 Not Found\n"
 RECV_LENGTH = 16384 # sock.recv()一次接收内容的长度
 CHUNK_SIZE = 1<<20 # 1MB
 SEND_SPEED = 10 # 大文件的发送速度限制，单位为MB/s，设为非正数则不限速
+LOG_FILE=os.path.join(os.path.split(__file__)[0],"server.log")
+LOG_FILE_ERR=os.path.join(os.path.split(__file__)[0],"server_err.log")
+
+class AutoFlushWrapper: # 自动调用flush()的包装器
+    def __init__(self,stream,interval=0):
+        self._stream=stream
+        self._last_flush_time=0
+        self._interval=interval
+    def write(self,message):
+        result=self._stream.write(message)
+        if time.time()-self._last_flush_time > self._interval:
+            self._stream.flush()
+            self._last_flush_time=time.time()
+        return result
+    def __getattr__(self,attr):
+        try:
+            return super().__getattr__(self,attr)
+        except AttributeError:
+            return getattr(self._stream,attr) # 返回self.stream的属性和方法
+
+class RedirectedOutput:
+    def __init__(self,*streams):
+        if not streams:raise ValueError("At least one stream should be provided")
+        self._streams=streams
+    def write(self,data):
+        written=self._streams[0].write(data)
+        result=written if written is not None else len(data)
+        for stream in self._streams[1:]:
+            written=stream.write(data)
+            result=min(result,written if written is not None else result)
+        return result
+    def flush(self):
+        for stream in self._streams:
+            stream.flush()
+    def isatty(self):
+        return any(stream.isatty() for stream in self._streams)
 
 def _read_file_helper(head,file,chunk_size,start,end): # 分段读取文件使用的生成器
     yield head
@@ -86,9 +122,9 @@ def get_dir_content(dir):
     response = head + f"""
 <html><head>
 <meta http-equiv="content-type" content="text/html;charset=utf-8">
-<title>{path} 的目录</title>
+<title>{dir} 的目录</title>
 </head><body>
-<h1>{path}的目录</h1>""".encode()
+<h1>{dir} 的目录</h1>""".encode()
     # 获取当前路径下的各个文件、目录名
     subdirs=[] # 子目录名
     subfiles=[] # 子文件名
@@ -322,6 +358,11 @@ def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输�
 
 PORT=int(sys.argv[1]) if len(sys.argv)==2 else 80 # 80为HTTP的默认端口
 if __name__ == "__main__":
+    log_file=AutoFlushWrapper(open(LOG_FILE,"w",encoding="utf-8"),1)
+    sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
+    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"w",encoding="utf-8"),1)
+    sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
+
     host = socket.gethostname()
     ips = socket.gethostbyname_ex(host)[2] # 或者socket.gethostbyname(host)
     print("服务器的IP:",ips)
