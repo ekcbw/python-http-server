@@ -46,6 +46,7 @@
 5. **安全性**：
    服务器能检测`..`等常见的上级目录攻击格式，避免了常见的目录遍历攻击。
 
+---
 
 This is a lightweight HTTP file server implemented in Python, serving as a replacement for the built-in `http.server` module and based on the `socket` module.  
 The server utilizes the `mimetypes` library to automatically determine the file's content type based on its file extension, and uses the `chardet` library for automatic encoding detection.  

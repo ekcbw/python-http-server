@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件上传表单</title>
+</head>
+<body>
+    <h2>上传文件</h2>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <div>
+            <label for="file">选择文件:</label>
+            <input type="file" id="file" name="file" required>
+        </div>
+        <div>
+            <input type="radio" id="option1" name="vote" value="选项1" required>
+            <label for="option1">选项1</label>
+        </div>
+        <div>
+            <input type="radio" id="option2" name="vote" value="选项2">
+            <label for="option2">选项2</label>
+        </div>
+        <button type="submit">上传</button>
+    </form>
+</body>
+</html>
