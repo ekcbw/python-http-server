@@ -1,8 +1,8 @@
 **The English documentation is shown below the Chinese version.**
 
 这是一个Python的轻量级HTTP文件服务器，可以取代python自带的`http.server`模块，基于`socket`模块实现。  
-服务器基于`mimetypes`库，自动根据扩展名判断文件的类型`content-type`，并基于`chardetect`库自动检测编码；  
-此外服务器实现了分块发送响应数据，实现了限制下载速度和断点续传功能，适合传输大文件，并能处理POST请求提交的表单。  
+服务器应用`mimetypes`库，自动根据扩展名判断文件的类型`content-type`，并基于`chardetect`库自动检测编码；  
+此外服务器实现了分块发送响应数据，实现了限制下载速度和断点续传功能，适合传输大文件，并能处理POST请求提交的表单和文件。  
 
 ## 用法
 
@@ -32,24 +32,24 @@
 ## 功能
 
 1. **基于扩展名自动检测Content-Type**：
-   该服务器使用 `mimetypes` 库自动判断文件的内容类型。客户端在请求文件时，服务器会根据文件的扩展名来设置 `Content-Type` 头。
+   服务器应用 `mimetypes` 库自动判断文件的内容类型。客户端在请求文件时，服务器会根据文件的扩展名来设置 `Content-Type` 头。
 
 2. **自动编码检测**：
-   服务器使用 `chardet` 库来自动检测文件的编码格式。这对于处理各种文本文件非常有用，可以确保正确读取和返回文件内容。
+   服务器使用 `chardet` 库来自动检测文件的编码格式，解决了乱码问题。
 
 3. **分块发送响应数据**：
-   服务器实现了分块发送功能，这使得它能够限制下载速度和支持断点续传。这对于共享大文件非常实用，可以提高用户的体验。
+   服务器实现了分块发送响应数据，使得服务器能限制下载速度，并支持断点续传。
 
 4. **处理POST请求**：
-   服务器具备处理POST请求的基本功能。这意味着用户可以通过表单提交数据，服务器能够正确接收并处理这些请求。
+   服务器实现了处理POST请求，支持用户通过表单提交数据，以及上传文件。
 
 5. **安全性**：
-   服务器能检测`..`等常见的上级目录攻击格式，避免了目录遍历等攻击。
+   服务器能检测`..`等常见的上级目录攻击格式，避免了常见的目录遍历攻击。
 
 
 This is a lightweight HTTP file server implemented in Python, serving as a replacement for the built-in `http.server` module and based on the `socket` module.  
 The server utilizes the `mimetypes` library to automatically determine the file's content type based on its file extension, and uses the `chardet` library for automatic encoding detection.  
-In addition, the server implements chunked response data transfer, enabling download speed limits and resume capabilities, making it suitable for large file transfers. It can also handle POST requests submitted by forms.  
+In addition, the server implements chunked response data transfer, enabling download speed limits and resume capabilities, making it suitable for large file transfers. The server can also handle POST requests submitted by forms and files.  
 
 ## Usage
 
@@ -78,17 +78,17 @@ In addition, the server implements chunked response data transfer, enabling down
 
 ## Features
 
-1. **Content-Type Detection Based on Extension**:
-   The server uses the `mimetypes` library to automatically determine the content type of files. This means that when a client requests a file, the server sets the `Content-Type` header based on the file's extension.
+1. **Automatic Content-Type Detection Based on File Extension**:  
+   The server application uses the `mimetypes` library to automatically determine the content type of files. When the client requests a file, the server sets the `Content-Type` header based on the file's extension.
 
-2. **Automatic Encoding Detection**:
-   The server uses the `chardet` library for automatic detection of file encoding. This is very useful for handling various text files and ensures that file content is read and returned correctly.
+2. **Automatic Encoding Detection**:  
+   The server uses the `chardet` library to automatically detect the encoding format of files, resolving issues with garbled text.
 
-3. **Chunked Response Data Transfer**:
-   The server implements chunked response capability, which allows it to limit download speeds and support resumable downloads. This is practical for sharing large files and can enhance user experience.
+3. **Chunked Response Data Transmission**:  
+   The server implements chunked response data transmission, allowing it to limit download speeds and support resuming interrupted downloads.
 
-4. **Handling POST Requests**:
-   The server has basic capabilities for handling POST requests. This means that users can submit data via forms, and the server can correctly receive and process these requests.
+4. **Handling POST Requests**:  
+   The server is capable of handling POST requests, enabling users to submit data through forms and upload files.
 
-5. **Security**:
-   The server can detect common directory traversal attack patterns such as `..`, preventing attacks like directory traversal.
+5. **Security**:  
+   The server can detect common directory traversal attack patterns, such as `..`, preventing common directory traversal attacks.
