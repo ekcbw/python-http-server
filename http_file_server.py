@@ -1,7 +1,5 @@
 # http文件服务器程序, 可用于在本地创建一个网站，基于socket库
-# 使用方法：将本文件"http文件服务器.py"和html文件(如:index.html)放在同一个目录
-# 然后运行"http文件服务器.py"即可
-# 命令行：python http文件服务器.py <端口号(可选)>
+# 命令行：python http_file_server.py <端口号(可选)>
 
 import sys, os, time, traceback, threading
 import socket, mimetypes
@@ -21,10 +19,15 @@ SEND_SPEED = 10 # 大文件的发送速度限制，单位为MB/s，设为非正�
 MAX_UPLOAD_SIZE = 1 << 26 # 64MB
 MAX_FILE_SIZE = 1 << 25 # 32MB
 MAX_WAIT_CONNECTIONS = 128
+FLUSH_INTERVAL = 1 # 日志写入后1s刷新一次日志
+HEADER_FLUSH_INTERVAL = 5
 
 LOG_FILE=os.path.join(os.path.split(__file__)[0],"server.log")
 LOG_FILE_ERR=os.path.join(os.path.split(__file__)[0],"server_err.log")
+LOG_FILE_HEADER=os.path.join(os.path.split(__file__)[0],"request_headers.log")
 UPLOAD_PATH=os.path.join(os.path.split(__file__)[0],"uploads")
+
+cur_address=(None, None);log_file_reqheader=None
 
 class AutoFlushWrapper: # 自动调用flush()的包装器
     def __init__(self,stream,interval=0):
@@ -35,6 +38,7 @@ class AutoFlushWrapper: # 自动调用flush()的包装器
         self._condition=threading.Condition()
         self._stopped=threading.Event()
         flush_thread=threading.Thread(target=self._auto_flush_thread)
+        flush_thread.daemon=True
         flush_thread.start()
 
     def write(self,message):
@@ -95,9 +99,10 @@ class RedirectedOutput:
         for stream in self._streams:
             stream.close()
 
-def log(*args, sep=" ", file=None, flush=False):
+def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、端口的日志记录
     print(f"{time.asctime()} | {cur_address[0]}:{cur_address[1]}{sep}{sep.join(args)}",
           file=file,flush=flush)
+
 
 def _read_file_helper(head,file,chunk_size,start,end): # 分段读取文件使用的生成器
     yield head
@@ -178,7 +183,7 @@ def check_filetype(path): # 检查文件扩展名并返回content-type
     return b"Content-Type: %s\n"%mime_type.encode()
 
 def parse_head(req_head): # 解析请求头中的路径和查询参数
-    url = unquote(req_head.split(' ')[1])[1:] # 获取请求url后面的路径, 在请求数据第一行
+    url = unquote(req_head.split(' ')[1])[1:] # 获取请求的路径, 在请求数据第一行
     parse_result = urlparse(url)
     direc,query_str,fragment = parse_result.path,\
         parse_result.query,parse_result.fragment
@@ -219,17 +224,9 @@ def get_dir_content(direc):
         response += f'\n<p><a href="/{direc}/{sub}">[{sub}]</a></p>'.encode()
     for sub in subfiles:
         size=convert_size(os.path.getsize(os.path.join(path,sub)))
-        mime_type=get_mimetype(sub) or ""
-        if mime_type.startswith("video"):
-            play_elem=f'''\
-<span>&nbsp;</span>\
-<a href="/{direc}/{sub}?_PyHttpServer_operation=play">播放</a>'''
-        else:
-            play_elem=""
-
         response += f'''\n<p><a href="/{direc}/{sub}">{sub}</a>\
-{play_elem}\
 <span style="color: #707070;">&nbsp;{size}</span></p>'''.encode()
+
     response += b"\n</body></html>"
     return response
 
@@ -250,19 +247,6 @@ def get_file(path,start=None,end=None): # 返回文件的数据
 def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url的路径direc构造响应数据
     if query is None:
         query = {}
-    mime_type=get_mimetype(direc) or ""
-    if "play" in query.get("_PyHttpServer_operation",[]) and \
-        mime_type.startswith("video"):
-        response = HEAD_OK + f"""
-<html><head>
-<meta http-equiv="content-type" content="text/html;charset=utf-8">
-<title>{direc}</title>
-</head><body>
-<video controls name="media" preload="auto">
-    <source src="/{direc}" type="{mime_type}">
-</video>
-</body></html>""".encode()
-        return response
 
     # 将direc转换为系统路径, 放入path
     path = os.path.join(os.getcwd(),direc)
@@ -306,7 +290,7 @@ def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url�
 <title>404</title>
 </head><body>
 <h1>404 Not Found</h1>
-<p>来自 Python 服务器测试</p>
+<p>页面 /{direc} 未找到</p>
 <a href="/{direc}/..">返回上一级</a>
 <a href="/">返回首页</a>
 </body></html>
@@ -337,7 +321,7 @@ def send_response(sock,response,address):
         sock.send(chunk)
     if SEND_SPEED > 0 and total >= SEND_SPEED*(1<<20) \
         or SEND_SPEED <= 0 and total >= 1<<27: # 如果预计发送时间超过1秒，或不限速时大于128MB
-        log("较大响应 (%s) 发送完毕" % convert_size(total))
+        log_addr("较大响应 (%s) 发送完毕" % convert_size(total))
 
 def handle_post(sock,req_head,req_info,content):
     template = """
@@ -353,7 +337,7 @@ onclick="window.history.back();">返回</a>
 
     length = int(req_info.get('Content-Length',-1))
     if length > MAX_UPLOAD_SIZE:
-        log("尝试提交过大表单:",convert_size(MAX_UPLOAD_SIZE))
+        log_addr("尝试提交过大表单:",convert_size(MAX_UPLOAD_SIZE))
         msg = f"提交失败，数据量大于 {convert_size(MAX_UPLOAD_SIZE)} "
         # TODO: 会导致客户端浏览器显示“已重置连接”
         return HEAD_413 + template.format(title="提交失败",msg=msg).encode()
@@ -386,7 +370,7 @@ onclick="window.history.back();">返回</a>
             if "filename" in disposition:
                 os.makedirs(UPLOAD_PATH,exist_ok=True)
                 if len(data) > MAX_FILE_SIZE:
-                    log("尝试提交过大的文件:",disposition["filename"],
+                    log_addr("尝试提交过大的文件:",disposition["filename"],
                           convert_size(len(data)))
                     title = "提交失败"
                     msg = f"提交失败，最大只能上传 {convert_size(MAX_FILE_SIZE)} 的文件"
@@ -395,7 +379,7 @@ onclick="window.history.back();">返回</a>
                 filename = os.path.join(UPLOAD_PATH,disposition["filename"])
                 with open(filename,"wb") as f:
                     f.write(data) # 保存上传的文件
-                log("上传文件:",disposition["filename"])
+                log_addr("上传文件:",disposition["filename"])
                 form[disposition["name"]] = filename
             else:
                 try: data = data.decode()
@@ -409,13 +393,13 @@ onclick="window.history.back();">返回</a>
             form=parse_qs(content.decode("utf-8"),
                           keep_blank_values=True,encoding="utf-8")
 
-    log("提交数据:",form)
+    log_addr("提交数据:",form)
 
     title = msg = "提交成功"
     return HEAD_OK + template.format(title=title,msg=msg).encode()
 
 def get_request_info(data: bytes, has_head = True):
-    # 获取请求头部信息，首行存入req_head，其他信息存入字典req_info
+    # 获取请求头部信息，首行存入req_head字符串，其他信息存入字典req_info
     lines = data.splitlines()
     if has_head:
         req_head = lines.pop(0).decode("utf-8")
@@ -442,20 +426,20 @@ def handle_get(req_head,req_info):
         start,end=range_.split("-")
         start = int(start) if start else None
         end = int(end) if end else None
-        log("访问URL: %s (从 %s 到 %s 断点续传)" % (url,
+        log_addr("访问URL: %s (从 %s 到 %s 断点续传)" % (url,
             convert_size(start) if start is not None else None,
             convert_size(end) if end is not None else "末尾"))
         return getcontent(direc,query,fragment,start,end)
     else:
-        log("访问URL:",url)
+        log_addr("访问URL:",url)
         return getcontent(direc,query,fragment) # 获取目录的数据
 
 def handle_client(sock, address):# 处理客户端请求
     raw = sock.recv(RECV_LENGTH)
     if not raw:return # 忽略空数据
 
-    req_head,req_info=get_request_info(raw)
-    #print("请求数据:", req_head);pprint.pprint(req_info)
+    req_head,req_info = get_request_info(raw)
+    log_addr(f"{req_head!r} {req_info}", file=log_file_reqheader) # 记录请求头
 
      # 获取响应数据，response可以为bytes类型，或一个生成器
     if req_head.startswith("POST"): # POST请求
@@ -465,7 +449,7 @@ def handle_client(sock, address):# 处理客户端请求
 
     try:send_response(sock,response,address) # 向客户端分段发送响应数据
     except ConnectionError as err:
-        log("连接异常 (%s): %s" % (type(err).__name__,str(err)))
+        log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
     sock.close() # 关闭客户端连接
 
 def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输出错误信息
@@ -474,12 +458,15 @@ def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输�
         traceback.print_exc()
 
 def main():
-    global cur_address
-    log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),1)
+    global cur_address, log_file_reqheader
+    log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
     log_file.write("\n") # 插入空行，分割上次的日志
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
-    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"w",encoding="utf-8"),1)
+    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"w",encoding="utf-8"),
+                                  FLUSH_INTERVAL)
     sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
+    log_file_reqheader=AutoFlushWrapper(open(LOG_FILE_HEADER,"a",encoding="utf-8"),
+                                     HEADER_FLUSH_INTERVAL) # 记录请求头的日志
 
     host = socket.gethostname()
     port=int(sys.argv[1]) if len(sys.argv)==2 else 80 # 80为HTTP的默认端口
@@ -503,7 +490,6 @@ def main():
                 executor.submit(handle_client_thread, client_sock, cur_address)
         finally:
             sock.close()
-            sys.stdout.stop_auto_flush()
-            sys.stderr.stop_auto_flush()
+            sys.stdout.flush();sys.stderr.flush()
 
 if __name__ == "__main__":main()

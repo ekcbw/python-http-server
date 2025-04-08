@@ -1,4 +1,5 @@
 *__pycache__*
 server.log
 server_err.log
-uploads*
+request_headers.log
+uploads
