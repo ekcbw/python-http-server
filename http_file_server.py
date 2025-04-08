@@ -462,8 +462,9 @@ def main():
     log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
     log_file.write("\n") # 插入空行，分割上次的日志
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
-    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"w",encoding="utf-8"),
+    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"a",encoding="utf-8"),
                                   FLUSH_INTERVAL)
+    log_file_err.write("\n{time.asctime()}:\n")
     sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
     log_file_reqheader=AutoFlushWrapper(open(LOG_FILE_HEADER,"a",encoding="utf-8"),
                                      HEADER_FLUSH_INTERVAL) # 记录请求头的日志
@@ -491,5 +492,6 @@ def main():
         finally:
             sock.close()
             sys.stdout.flush();sys.stderr.flush()
+            log_file_reqheader.flush()
 
 if __name__ == "__main__":main()

@@ -25,6 +25,7 @@
 
 3. **日志记录**：
    服务器日志默认记录在`http_file_server.py`同一目录下的`server.log`和`server_err.log`中，并支持延迟刷新(flush)，确保服务器意外停止不会导致日志丢失，同时避免了每次写入都刷新引发的性能问题。  
+   此外，服务器还会在`request_headers.log`存档每个请求的请求头。  
 
 ## 功能
 
@@ -69,7 +70,8 @@ The server implements chunked data transmission to support download speed limiti
    Additionally, if a directory contains a file named `index` (regardless of its extension), the file name can also be omitted. For example, `127.0.0.1/path` and `127.0.0.1/path/index.css` are treated the same.
 
 3. **Logging**:
-   By default, server logs are stored in the same directory as `http_file_server.py` under `server.log` and `server_err.log`. The server supports delayed flushing to ensure that logs are not lost in case of an unexpected shutdown, while also avoiding performance issues caused by frequent flushes.
+   By default, server logs are stored in the same directory as `http_file_server.py` under `server.log` and `server_err.log`. The server supports delayed flushing to ensure that logs are not lost in case of an unexpected shutdown, while also avoiding performance issues caused by frequent flushes.  
+   In addition, the server will archive the headers of each request in `request_headers.log`.  
 
 ## Features
 
