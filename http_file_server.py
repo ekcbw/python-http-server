@@ -464,7 +464,7 @@ def main():
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
     log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"a",encoding="utf-8"),
                                   FLUSH_INTERVAL)
-    log_file_err.write("\n{time.asctime()}:\n")
+    log_file_err.write(f"\n{time.asctime()}:\n")
     sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
     log_file_reqheader=AutoFlushWrapper(open(LOG_FILE_HEADER,"a",encoding="utf-8"),
                                      HEADER_FLUSH_INTERVAL) # 记录请求头的日志
