@@ -100,7 +100,8 @@ class RedirectedOutput:
             stream.close()
 
 def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、端口的日志记录
-    print(f"{time.asctime()} | {cur_address[0]}:{cur_address[1]}{sep}{sep.join(args)}",
+    print(f"""{time.asctime()} | {cur_address[0]}:\
+{cur_address[1]}{sep}{sep.join(str(arg) for arg in args)}""",
           file=file,flush=flush)
 
 
@@ -435,7 +436,9 @@ def handle_get(req_head,req_info):
         return getcontent(direc,query,fragment) # 获取目录的数据
 
 def handle_client(sock, address):# 处理客户端请求
-    raw = sock.recv(RECV_LENGTH)
+    try:raw = sock.recv(RECV_LENGTH)
+    except ConnectionError as err:
+        log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
     if not raw:return # 忽略空数据
 
     req_head,req_info = get_request_info(raw)
