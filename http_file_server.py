@@ -439,6 +439,7 @@ def handle_client(sock, address):# 处理客户端请求
     try:raw = sock.recv(RECV_LENGTH)
     except ConnectionError as err:
         log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
+        return
     if not raw:return # 忽略空数据
 
     req_head,req_info = get_request_info(raw)
