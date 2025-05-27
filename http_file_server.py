@@ -21,6 +21,7 @@ MAX_FILE_SIZE = 1 << 25 # 32MB
 MAX_WAIT_CONNECTIONS = 128
 FLUSH_INTERVAL = 1 # 日志写入后1s刷新一次日志
 HEADER_FLUSH_INTERVAL = 5
+MAX_WORKERS = 128 # 最大线程数
 
 LOG_FILE=os.path.join(os.path.split(__file__)[0],"server.log")
 LOG_FILE_ERR=os.path.join(os.path.split(__file__)[0],"server_err.log")
@@ -403,14 +404,14 @@ def get_request_info(data: bytes, has_head = True):
     # 获取请求头部信息，首行存入req_head字符串，其他信息存入字典req_info
     lines = data.splitlines()
     if has_head:
-        req_head = lines.pop(0).decode("utf-8")
+        req_head = lines.pop(0).decode("utf-8", errors="backslashreplace")
     else:
         req_head = None
 
     req_info = {}
     for line in lines:
         if not line:break # 两个空行表示开头的结束
-        line = line.decode("utf-8")
+        line = line.decode("utf-8", errors="backslashreplace")
         lst = line.split(':', 1)
         try:
             key, value = lst[0].strip(), lst[1].strip()
@@ -488,7 +489,7 @@ def main():
     #    client_sock, cur_address = sock.accept()
     #    handle_client(client_sock, cur_address)
     # 多线程
-    with ThreadPoolExecutor(max_workers=os.cpu_count()+4) as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         try:
             while True:
                 client_sock, cur_address = sock.accept()
