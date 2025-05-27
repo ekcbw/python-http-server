@@ -488,7 +488,7 @@ def main():
     #    client_sock, cur_address = sock.accept()
     #    handle_client(client_sock, cur_address)
     # 多线程
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=os.cpu_count()+4) as executor:
         try:
             while True:
                 client_sock, cur_address = sock.accept()
