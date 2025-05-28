@@ -28,7 +28,7 @@ LOG_FILE_ERR=os.path.join(os.path.split(__file__)[0],"server_err.log")
 LOG_FILE_HEADER=os.path.join(os.path.split(__file__)[0],"request_headers.log")
 UPLOAD_PATH=os.path.join(os.path.split(__file__)[0],"uploads")
 
-cur_address=(None, None);log_file_reqheader=None
+cur_address=threading.local();log_file_reqheader=None
 
 class AutoFlushWrapper: # 自动调用flush()的包装器
     def __init__(self,stream,interval=0):
@@ -101,8 +101,9 @@ class RedirectedOutput:
             stream.close()
 
 def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、端口的日志记录
-    print(f"""{time.asctime()} | {cur_address[0]}:\
-{cur_address[1]}{sep}{sep.join(str(arg) for arg in args)}""",
+    addr = getattr(cur_address,"addr",(None,None))
+    print(f"""{time.asctime()} | {addr[0]}:{addr[1]}\
+{sep}{sep.join(str(arg) for arg in args)}""",
           file=file,flush=flush)
 
 
@@ -457,7 +458,8 @@ def handle_client(sock, address):# 处理客户端请求
         log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
     sock.close() # 关闭客户端连接
 
-def _handle_client(sock, address): # 仅用于发生异常时输出错误信息
+def handle_client_thread(sock, address): # 仅用于发生异常时输出错误信息
+    cur_address.addr = address
     try:handle_client(sock, address)
     except Exception:
         traceback.print_exc()
@@ -465,7 +467,7 @@ def _handle_client(sock, address): # 仅用于发生异常时输出错误信息
         except Exception:pass
 
 def main():
-    global cur_address, log_file_reqheader
+    global log_file_reqheader
     log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
     log_file.write("\n") # 插入空行，分割上次的日志
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
@@ -478,7 +480,7 @@ def main():
 
     host = socket.gethostname()
     port=int(sys.argv[1]) if len(sys.argv)==2 else 80 # 80为HTTP的默认端口
-    ips = socket.gethostbyname_ex(host)[2] # 或者socket.gethostbyname(host)
+    ips = socket.gethostbyname_ex(host)[2] # 或socket.gethostbyname(host)
     print(f"已在 {time.asctime()} 启动服务器")
     print("服务器的IP:",ips)
 
@@ -486,16 +488,11 @@ def main():
     sock.bind(("", port))
     sock.listen(MAX_WAITING_CONNECTIONS) # 监听
 
-    # 单线程模式，一次处理一个客户端
-    #while True:
-    #    client_sock, cur_address = sock.accept()
-    #    _handle_client(client_sock, cur_address)
-    # 多线程
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         try:
             while True:
-                client_sock, cur_address = sock.accept()
-                executor.submit(_handle_client, client_sock, cur_address)
+                client_sock, address = sock.accept()
+                executor.submit(handle_client_thread, client_sock, address)
         finally:
             sock.close()
             sys.stdout.flush();sys.stderr.flush()
