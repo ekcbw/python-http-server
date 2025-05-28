@@ -18,7 +18,7 @@ CHUNK_SIZE = 1 << 20 # 发送内容长度（1MB）
 SEND_SPEED = 10 # 大文件的发送速度限制，单位为MB/s，设为非正数则不限速
 MAX_UPLOAD_SIZE = 1 << 26 # 64MB
 MAX_FILE_SIZE = 1 << 25 # 32MB
-MAX_WAIT_CONNECTIONS = 128
+MAX_WAITING_CONNECTIONS = 128
 FLUSH_INTERVAL = 1 # 日志写入后1s刷新一次日志
 HEADER_FLUSH_INTERVAL = 5
 MAX_WORKERS = 128 # 最大线程数
@@ -162,7 +162,7 @@ def get_mimetype(path):
     mimetypes.types_map[".js"]="application/javascript"
     mime_type=mimetypes.guess_type(path)[0]
     if mime_type=="text/plain":
-        mimetype=mimetypes.types_map.get(os.path.splitext(path)[1],"text/plain")
+        mime_type=mimetypes.types_map.get(os.path.splitext(path)[1],"text/plain")
     return mime_type
 def check_filetype(path): # 检查文件扩展名并返回content-type
     mime_type=get_mimetype(path)
@@ -457,10 +457,12 @@ def handle_client(sock, address):# 处理客户端请求
         log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
     sock.close() # 关闭客户端连接
 
-def handle_client_thread(*args,**kw): # 仅用于多线程中产生异常时输出错误信息
-    try:handle_client(*args,**kw)
+def _handle_client(sock, address): # 仅用于发生异常时输出错误信息
+    try:handle_client(sock, address)
     except Exception:
         traceback.print_exc()
+        try:sock.close()
+        except Exception:pass
 
 def main():
     global cur_address, log_file_reqheader
@@ -482,18 +484,18 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("", port))
-    sock.listen(MAX_WAIT_CONNECTIONS) # 监听
+    sock.listen(MAX_WAITING_CONNECTIONS) # 监听
 
     # 单线程模式，一次处理一个客户端
     #while True:
     #    client_sock, cur_address = sock.accept()
-    #    handle_client(client_sock, cur_address)
+    #    _handle_client(client_sock, cur_address)
     # 多线程
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         try:
             while True:
                 client_sock, cur_address = sock.accept()
-                executor.submit(handle_client_thread, client_sock, cur_address)
+                executor.submit(_handle_client, client_sock, cur_address)
         finally:
             sock.close()
             sys.stdout.flush();sys.stderr.flush()
