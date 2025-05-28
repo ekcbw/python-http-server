@@ -8,18 +8,18 @@
 ## 用法
 
 1. **启动服务器**：
-   运行程序时，需要提供端口号作为命令行参数。例如：
+   直接运行`http_file_server.py`即可：
    ```bash
    python http_file_server.py <可选的端口号，如8080>
    ```
-   这将启动一个监听于8080端口的HTTP文件服务器，可通过`127.0.0.1:8080`访问。如果没有指定端口号，默认为HTTP使用的80。
+   这将启动一个监听于8080端口的HTTP文件服务器，可通过`127.0.0.1:8080`访问。如果未指定端口号，默认为HTTP使用的80。
 
 2. **访问文件**：
    服务器的根目录默认为当前的**工作路径**，例如访问：
    ```
    http://127.0.0.1/path/index.html
    ```
-   将会访问到文件`<工作路径>/path/index.html`。  
+   将会返回实际文件`<工作路径>/path/index.html`。  
    `.htm`或`.html`文件的扩展名可以省略。如`127.0.0.1/path/index`和`127.0.0.1/path/index.html`是一样的。  
    另外，如果目录中有名为`index`的文件（无论扩展名为何），文件名也可省略，如`127.0.0.1/path`和`127.0.0.1/path/index.css`相同。  
 
@@ -54,9 +54,9 @@ The server implements chunked data transmission to support download speed limiti
 ## Usage
 
 1. **Starting the Server**:
-   When running the program, you need to provide the port number as a command-line argument. For example:
+   Just run `http_file_server.py` directly:
    ```bash
-   python http_file_server.py <optional port number, e.g., 8080>
+   python http_file_server.py <optional port number, e.g. 8080>
    ```
    This will start an HTTP file server listening on port 8080, accessible via `127.0.0.1:8080`. If no port number is specified, the default HTTP port (80) will be used.
 
@@ -65,7 +65,7 @@ The server implements chunked data transmission to support download speed limiti
    ```
    http://127.0.0.1/path/index.html
    ```
-   will retrieve the file `<working directory>/path/index.html`.  
+   will retrieve the actual file `<working directory>/path/index.html`.  
    The `.htm` or `.html` file extensions can be omitted. For instance, `127.0.0.1/path/index` and `127.0.0.1/path/index.html` are equivalent.  
    Additionally, if a directory contains a file named `index` (regardless of its extension), the file name can also be omitted. For example, `127.0.0.1/path` and `127.0.0.1/path/index.css` are treated the same.
 
