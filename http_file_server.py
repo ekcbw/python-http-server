@@ -13,19 +13,21 @@ HEAD_OK = b"HTTP/1.1 200 OK\n"
 HEAD_206 = b"HTTP/1.1 206 Partial Content\n"
 HEAD_404 = b"HTTP/1.1 404 Not Found\n"
 HEAD_413 = b"HTTP/1.1 413 Payload Too Large\n"
+HEAD_ACCEPT_RANGES = b"Accept-Ranges: bytes\n"
 RECV_LENGTH = 1 << 19 # sock.recv()一次接收内容的长度
 CHUNK_SIZE = 1 << 20 # 发送内容长度（1MB）
 SEND_SPEED = 10 # 大文件的发送速度限制，单位为MB/s，设为非正数则不限速
 MAX_UPLOAD_SIZE = 1 << 26 # 64MB
 MAX_FILE_SIZE = 1 << 25 # 32MB
-MAX_WAITING_CONNECTIONS = 128
+MAX_WAITING_CONNECTIONS = 256
 FLUSH_INTERVAL = 1 # 日志写入后1s刷新一次日志
 HEADER_FLUSH_INTERVAL = 5
 MAX_WORKERS = 128 # 最大线程数
 
-LOG_FILE=os.path.join(os.path.split(__file__)[0],"server.log")
-LOG_FILE_ERR=os.path.join(os.path.split(__file__)[0],"server_err.log")
-LOG_FILE_HEADER=os.path.join(os.path.split(__file__)[0],"request_headers.log")
+LOG_PATH=os.path.join(os.path.split(__file__)[0],"logs")
+LOG_FILE=os.path.join(LOG_PATH,"server.log")
+LOG_FILE_ERR=os.path.join(LOG_PATH,"server_err.log")
+LOG_FILE_HEADER=os.path.join(LOG_PATH,"request_headers.log")
 UPLOAD_PATH=os.path.join(os.path.split(__file__)[0],"uploads")
 
 cur_address=threading.local();log_file_reqheader=None
@@ -107,7 +109,8 @@ def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、�
           file=file,flush=flush)
 
 
-def _read_file_helper(head,file,chunk_size,start,end): # 分段读取文件使用的生成器
+def _read_file_helper(head,file,chunk_size,start,end):
+    # 分段读取文件的生成器，也负责关闭文件
     yield head
     file.seek(start)
     total=0
@@ -237,14 +240,16 @@ def get_file(path,start=None,end=None): # 返回文件的数据
     size = os.path.getsize(path)
     if start is not None or end is not None:
         start = start or 0
-        end = end or size
-        head = (HEAD_206 if start>0 else HEAD_OK) + check_filetype(path)
-        head += b"Content-Range: bytes %d-%d/%d\n\n" % (start,end,size)
+        end = end or size # end变量为不包含
+        length = end - start
     else:
-        start = 0; end = size
-        head = HEAD_OK + check_filetype(path) # 加入content-type
-        # 响应头末尾以两个换行符(\n\n)结尾
-        head += b"Content-Length: %d\n\n" % size # 加入文件长度
+        start = 0; end = length = size
+    head = HEAD_206 if start > 0 else HEAD_OK
+    head += check_filetype(path) # 加入content-type
+    head += HEAD_ACCEPT_RANGES
+    head += b"Content-Length: %d\n" % length # 加入文件长度
+    # 响应头末尾以两个换行符(\n\n)结尾
+    head += b"Content-Range: bytes %d-%d/%d\n\n" % (start,end-1,size)
     return _read_file_helper(head,open(path,'rb'),CHUNK_SIZE,start,end) # 分段读取文件
 
 def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url的路径direc构造响应数据
@@ -306,7 +311,7 @@ def send_response(sock,response,address):
         response = _slice_helper(response,CHUNK_SIZE)
     total=0
     chunk=next(response)
-    sock.send(chunk)
+    sock.sendall(chunk)
     begin=time.perf_counter()
     while True:
         size=len(chunk)
@@ -321,7 +326,7 @@ def send_response(sock,response,address):
                           (time.perf_counter() - begin) # 预计时间 - 实际时间
                 if seconds > 0:
                     time.sleep(seconds) # 延迟发送，限制速度
-        sock.send(chunk)
+        sock.sendall(chunk)
     if SEND_SPEED > 0 and total >= SEND_SPEED*(1<<20) \
         or SEND_SPEED <= 0 and total >= 1<<27: # 如果预计发送时间超过1秒，或不限速时大于128MB
         log_addr("较大响应 (%s) 发送完毕" % convert_size(total))
@@ -428,11 +433,11 @@ def handle_get(req_head,req_info):
         range_=req_info["Range"].split("=",1)[1]
         start,end=range_.split("-")
         start = int(start) if start else None
-        end = int(end) if end else None
+        end = int(end)+1 if end else None
         log_addr("访问URL: %s (从 %s 到 %s 断点续传)" % (url,
             convert_size(start) if start is not None else None,
             convert_size(end) if end is not None else "末尾"))
-        return getcontent(direc,query,fragment,start,end)
+        return getcontent(direc,query,fragment,start,end) # end索引为包含
     else:
         log_addr("访问URL:",url)
         return getcontent(direc,query,fragment) # 获取目录的数据
@@ -468,6 +473,7 @@ def handle_client_thread(sock, address): # 仅用于发生异常时输出错误�
 
 def main():
     global log_file_reqheader
+    os.makedirs(LOG_PATH,exist_ok=True)
     log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
     log_file.write("\n") # 插入空行，分割上次的日志
     sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
