@@ -1,19 +1,20 @@
-# http文件服务器程序, 可用于在本地创建一个网站，基于socket库
-# 命令行：python http_file_server.py <端口号(可选)>
-
-import sys, os, time, traceback, threading
+#!/usr/bin/env python3
+# http文件服务端，基于socket库
+# 命令行：python http_file_server.py [选项] [端口号(可选)]
+import sys, os, time, traceback, argparse, threading
 import socket, mimetypes
+from typing import Iterator, Dict
 from ast import literal_eval
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse,parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote
 import chardet
 
-HEAD_100 = b"HTTP/1.1 100 Continue\n"
-HEAD_OK = b"HTTP/1.1 200 OK\n"
-HEAD_206 = b"HTTP/1.1 206 Partial Content\n"
-HEAD_404 = b"HTTP/1.1 404 Not Found\n"
-HEAD_413 = b"HTTP/1.1 413 Payload Too Large\n"
-HEAD_ACCEPT_RANGES = b"Accept-Ranges: bytes\n"
+STATUS_100 = b"HTTP/1.1 100 Continue\r\n"
+STATUS_OK = b"HTTP/1.1 200 OK\r\n"
+STATUS_206 = b"HTTP/1.1 206 Partial Content\r\n"
+STATUS_404 = b"HTTP/1.1 404 Not Found\r\n"
+STATUS_413 = b"HTTP/1.1 413 Payload Too Large\r\n"
+STATUS_ACCEPT_RANGES = b"Accept-Ranges: bytes\r\n"
 RECV_LENGTH = 1 << 19 # sock.recv()一次接收内容的长度
 CHUNK_SIZE = 1 << 20 # 发送内容长度（1MB）
 SEND_SPEED = 10 # 大文件的发送速度限制，单位为MB/s，设为非正数则不限速
@@ -23,14 +24,16 @@ MAX_WAITING_CONNECTIONS = 256
 FLUSH_INTERVAL = 1 # 日志写入后1s刷新一次日志
 HEADER_FLUSH_INTERVAL = 5
 MAX_WORKERS = 128 # 最大线程数
+TIMEOUT = 10 # 超时
 
-LOG_PATH=os.path.join(os.path.split(__file__)[0],"logs")
-LOG_FILE=os.path.join(LOG_PATH,"server.log")
-LOG_FILE_ERR=os.path.join(LOG_PATH,"server_err.log")
-LOG_FILE_HEADER=os.path.join(LOG_PATH,"request_headers.log")
-UPLOAD_PATH=os.path.join(os.path.split(__file__)[0],"uploads")
+LOG_PATH = os.path.join(os.path.split(__file__)[0],"logs")
+LOG_FILE = os.path.join(LOG_PATH,"server.log")
+LOG_FILE_ERR = os.path.join(LOG_PATH,"server_err.log")
+LOG_FILE_HEADS = os.path.join(LOG_PATH,"request_heads.log")
+UPLOAD_PATH = os.path.join(os.path.split(__file__)[0],"uploads")
 
-cur_address=threading.local();log_file_reqheader=None
+_cur_address=threading.local();_log_file_reqhead=None
+_send_speed=SEND_SPEED;_server_root_dir=os.getcwd()
 
 class AutoFlushWrapper: # 自动调用flush()的包装器
     def __init__(self,stream,interval=0):
@@ -74,13 +77,14 @@ class AutoFlushWrapper: # 自动调用flush()的包装器
         self._stream.close() # close()会自动调用flush()
     def __getattr__(self,attr):
         try:
-            return super().__getattr__(self,attr)
+            return getattr(super(), attr)
         except AttributeError:
             return getattr(self._stream,attr) # 返回self._stream的属性和方法
 
 class RedirectedOutput:
     def __init__(self,*streams):
-        if not streams:raise ValueError("At least one stream should be provided")
+        if not streams:
+            raise ValueError("At least one stream should be provided")
         self._streams=streams
     def write(self,data):
         written=self._streams[0].write(data)
@@ -102,16 +106,27 @@ class RedirectedOutput:
         for stream in self._streams:
             stream.close()
 
-def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、端口的日志记录
-    addr = getattr(cur_address,"addr",(None,None))
-    print(f"""{time.asctime()} | {addr[0]}:{addr[1]}\
-{sep}{sep.join(str(arg) for arg in args)}""",
-          file=file,flush=flush)
+class Response:
+    body: bytes|Iterator[bytes]
+    def __init__(self, status, head: Dict[str, str] = {},
+                 body: bytes|Iterator[bytes] = b"", chunk_size = CHUNK_SIZE):
+        self.status = status
+        self.head = head
+        self.body = body
+        self.chunk_size = chunk_size
+    def iter(self) -> Iterator[bytes]:
+        if isinstance(self.body, bytes) and "Content-Length" not in self.head:
+            self.head["Content-Length"] = str(len(self.body)) # 自动添加内容长度
+        head = self.status + b"\r\n".join(key.encode() + b": " + value.encode()
+                                for key, value in self.head.items()) + b"\r\n"
+        if isinstance(self.body, bytes):
+            yield from  _slice_helper(head + b"\r\n" + self.body, self.chunk_size)
+        else:
+            yield head + b"\r\n"
+            yield from self.body
 
-
-def _read_file_helper(head,file,chunk_size,start,end):
+def _read_file_helper(file,chunk_size,start,end) -> Iterator[bytes]:
     # 分段读取文件的生成器，也负责关闭文件
-    yield head
     file.seek(start)
     total=0
     while total<end-start:
@@ -120,10 +135,17 @@ def _read_file_helper(head,file,chunk_size,start,end):
         total+=size
         yield data
     file.close()
-def _slice_helper(data,size):
+def _slice_helper(data:bytes,size) -> Iterator[bytes]:
     n=len(data)
     for i in range(0,n,size):
         yield data[i:i+size]
+
+def log_addr(*args, sep=" ", file=None, flush=False): # 带时间和IP地址、端口的日志记录
+    addr = getattr(_cur_address,"addr",(None,None))
+    print(f"""{time.asctime()} | [{addr[0]}]:{addr[1]}\
+{sep}{sep.join(str(arg) for arg in args)}""",
+          file=file,flush=flush)
+
 def convert_size(num): # 将整数转换为数据单位
     units = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"]
 
@@ -133,18 +155,25 @@ def convert_size(num): # 将整数转换为数据单位
         num /= 1024
     return f"{num:.2f}{units[-1]}B"
 
+def parse_range(range_): # 解析Range字段
+    range_=range_.split("=",1)[1]
+    start,end=range_.split("-")
+    start = int(start) if start else None
+    end = int(end)+1 if end else None
+    return start, end
+
 def split_formdata(data: bytes, boundary: str):
     # 分割multipart/form-data数据
-    boundary = boundary.encode()
+    bound = boundary.encode()
     idx = None
     wrap = b"\r\n"
     slices = []
     while idx is None or idx < len(data):
-        result = data.find(boundary, idx)
+        result = data.find(bound, idx)
         if result == -1:return
         elif idx is not None:
             slices.append((idx, result-(len(wrap)+2))) # boundary之前会加入b"\r\n--"
-        idx = data.find(wrap, result+len(boundary)) + len(wrap)
+        idx = data.find(wrap, result+len(bound)) + len(wrap)
     for item in slices:
         yield data[item[0]:item[1]]
 
@@ -168,11 +197,9 @@ def get_mimetype(path):
     if mime_type=="text/plain":
         mime_type=mimetypes.types_map.get(os.path.splitext(path)[1],"text/plain")
     return mime_type
-def check_filetype(path): # 检查文件扩展名并返回content-type
-    mime_type=get_mimetype(path)
-    if mime_type is None: # 未知类型
-        return b"" # 不返回类型，由浏览器自行检测
-    if mime_type.lower().startswith("text"):
+def check_content_type(path) -> str | None: # 检查文件扩展名并返回content-type
+    mime_type = get_mimetype(path)
+    if mime_type is not None and mime_type.lower().startswith("text"):
         with open(path,"rb") as f:
             head=f.read(512) # 读取文件头部，并检测编码
             detected=chardet.detect(head)
@@ -185,11 +212,11 @@ def check_filetype(path): # 检查文件扩展名并返回content-type
             if coding=="ascii":
                 coding="utf-8" # 默认使用utf-8
         if coding is not None and detected["confidence"]>0.9:
-            mime_type+=";charset=%s"%coding
-    return b"Content-Type: %s\n"%mime_type.encode()
+            mime_type+=f";charset={coding}"
+    return mime_type
 
-def parse_head(req_head): # 解析请求头中的路径和查询参数
-    url = unquote(req_head.split(' ')[1])[1:] # 获取请求的路径, 在请求数据第一行
+def parse_head(req_line): # 解析请求头中的路径和查询参数
+    url = unquote(req_line.split(' ')[1])[1:] # 获取请求的路径, 在请求数据第一行
     parse_result = urlparse(url)
     direc,query_str,fragment = parse_result.path,\
         parse_result.query,parse_result.fragment
@@ -202,11 +229,10 @@ def parse_head(req_head): # 解析请求头中的路径和查询参数
         direc=direc[:-1]
     return direc,query,fragment
 
-def get_dir_content(direc):
-    path = os.path.join(os.getcwd(),direc)
-    head = HEAD_OK
-    response = head + f"""
-<html><head>
+def list_dir(direc) -> Response:
+    path = os.path.join(_server_root_dir, direc)
+    response = f"""\
+<!DOCTYPE html><html><head>
 <meta http-equiv="content-type" content="text/html;charset=utf-8">
 <title>{direc} 的目录</title>
 </head><body>
@@ -215,7 +241,6 @@ def get_dir_content(direc):
     subdirs=[] # 子目录名
     subfiles=[] # 子文件名
     for sub in os.listdir(path):
-        # os.listdir()无法直接区分目录名和文件名, 因此还需进行判断
         if os.path.isfile(os.path.join(path,sub)): # 如果子项是文件
             subfiles.append(sub)
         else: # 子项是目录
@@ -229,35 +254,38 @@ def get_dir_content(direc):
     for sub in subdirs:
         response += f'\n<p><a href="/{direc}/{sub}">[{sub}]</a></p>'.encode()
     for sub in subfiles:
-        size=convert_size(os.path.getsize(os.path.join(path,sub)))
+        size = convert_size(os.path.getsize(os.path.join(path,sub)))
         response += f'''\n<p><a href="/{direc}/{sub}">{sub}</a>\
 <span style="color: #707070;">&nbsp;{size}</span></p>'''.encode()
 
     response += b"\n</body></html>"
-    return response
+    return Response(STATUS_OK, {}, response)
 
-def get_file(path,start=None,end=None): # 返回文件的数据
+def get_file(path,start=None,end=None) -> Response: # 返回文件的数据
     size = os.path.getsize(path)
     if start is not None or end is not None:
         start = start or 0
-        end = end or size # end变量为不包含
+        end = min(end, size) if end is not None else size # end变量为不包含
         length = end - start
     else:
         start = 0; end = length = size
-    head = HEAD_206 if start > 0 else HEAD_OK
-    head += check_filetype(path) # 加入content-type
-    head += HEAD_ACCEPT_RANGES
-    head += b"Content-Length: %d\n" % length # 加入文件长度
-    # 响应头末尾以两个换行符(\n\n)结尾
-    head += b"Content-Range: bytes %d-%d/%d\n\n" % (start,end-1,size)
-    return _read_file_helper(head,open(path,'rb'),CHUNK_SIZE,start,end) # 分段读取文件
+    content_type = check_content_type(path)
 
-def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url的路径direc构造响应数据
+    status = STATUS_206 if start > 0 else STATUS_OK
+    head = {"Accept-Ranges": "bytes",
+            "Content-Length": str(length), # 加入文件长度
+            "Content-Range": f"bytes {start}-{end-1}/{size}"}
+    if content_type is not None:
+        head["Content-Type"] = content_type # 加入content-type
+    body = _read_file_helper(open(path,'rb'),CHUNK_SIZE,start,end) # 分段读取文件
+    return Response(status, head, body)
+
+def getcontent(direc,query=None,fragment=None,start=None,end=None) -> Response: # 根据url的路径direc构造响应数据
     if query is None:
         query = {}
 
     # 将direc转换为系统路径, 放入path
-    path = os.path.join(os.getcwd(),direc)
+    path = os.path.join(_server_root_dir,direc)
     try:
         if ".." in direc.split("/"): # 禁止访问上层目录
             raise OSError # 引发错误, 进入except语句
@@ -277,7 +305,7 @@ def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url�
             response = get_file(path,start,end)
 
         elif os.path.isdir(path): # --path是路径, 就显示路径中的各个文件--
-            response = get_dir_content(direc)
+            response = list_dir(direc)
 
         else: # 不存在文件或目录
             # 若.html的后缀名省略，自动寻找html文件
@@ -292,8 +320,8 @@ def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url�
 
     except OSError:
         # 返回404
-        response = HEAD_404 + f"""
-<html><head>
+        response = Response(STATUS_404, {}, f"""\
+<!DOCTYPE html><html><head>
 <meta http-equiv="content-type" content="text/html;charset=utf-8">
 <title>404</title>
 </head><body>
@@ -302,38 +330,36 @@ def getcontent(direc,query=None,fragment=None,start=None,end=None): # 根据url�
 <a href="/{direc}/..">返回上一级</a>
 <a href="/">返回首页</a>
 </body></html>
-""".encode()
+""".encode())
     return response
 
-def send_response(sock,response,address):
+def send_response(sock, response: Response):
+    resp = response.iter()
     # 分段发送响应
-    if isinstance(response,bytes):
-        response = _slice_helper(response,CHUNK_SIZE)
-    total=0
-    chunk=next(response)
+    total=0; chunk=next(resp)
     sock.sendall(chunk)
     begin=time.perf_counter()
     while True:
         size=len(chunk)
         total+=size
         try:
-            chunk=next(response)
+            chunk=next(resp)
         except StopIteration:
             break
         else:
-            if SEND_SPEED > 0:
-                seconds = (total/(1<<20))/SEND_SPEED - \
+            if _send_speed > 0:
+                seconds = (total/(1<<20))/_send_speed - \
                           (time.perf_counter() - begin) # 预计时间 - 实际时间
                 if seconds > 0:
                     time.sleep(seconds) # 延迟发送，限制速度
         sock.sendall(chunk)
-    if SEND_SPEED > 0 and total >= SEND_SPEED*(1<<20) \
-        or SEND_SPEED <= 0 and total >= 1<<27: # 如果预计发送时间超过1秒，或不限速时大于128MB
+    if _send_speed > 0 and total >= _send_speed*(1<<20) \
+        or _send_speed <= 0 and total >= 1<<27: # 如果预计发送时间超过1秒，或不限速时大于128MB
         log_addr("较大响应 (%s) 发送完毕" % convert_size(total))
 
-def handle_post(sock,req_head,req_info,content):
+def handle_post(sock,req_head,content) -> Response:
     template = """
-<html><head>
+<!DOCTYPE html><html><head>
 <meta http-equiv="content-type" content="text/html;charset=utf-8">
 <title>{title}</title>
 </head><body>
@@ -343,13 +369,13 @@ onclick="window.history.back();">返回</a>
 </body></html>
 """ # 提交完成的页面模板
 
-    length = int(req_info.get('Content-Length',-1))
+    length = int(req_head.get('Content-Length',-1))
     if length > MAX_UPLOAD_SIZE:
         log_addr("尝试提交过大表单:",convert_size(MAX_UPLOAD_SIZE))
         msg = f"提交失败，数据量大于 {convert_size(MAX_UPLOAD_SIZE)} "
         # TODO: 会导致客户端浏览器显示“已重置连接”
-        return HEAD_413 + template.format(title="提交失败",msg=msg).encode()
-    content_type, formdata_info = parse_line(req_info["Content-Type"])
+        return Response(STATUS_413, {}, template.format(title="提交失败",msg=msg).encode())
+    content_type, formdata_info = parse_line(req_head["Content-Type"])
     is_multipart_form = content_type == "multipart/form-data"
 
     if len(content) < length: # 内容不完整，尝试继续接收数据
@@ -360,7 +386,8 @@ onclick="window.history.back();">返回</a>
             chunks.append(new_data)
             received_len += len(new_data)
             if not new_data or received_len >= length:break
-            if received_len > MAX_UPLOAD_SIZE:return HEAD_413 + b"\n"
+            if received_len > MAX_UPLOAD_SIZE:
+                return Response(STATUS_413)
         content += b"".join(chunks)
 
     if length != -1:content = content[:length] # 截断过长的数据
@@ -368,7 +395,7 @@ onclick="window.history.back();">返回</a>
     if is_multipart_form: # 处理多部分表单，如上传文件等请求
         form = {}
         for data in split_formdata(content, formdata_info["boundary"]):
-            _, info = get_request_info(data, has_head = False)
+            _, info = get_request_info(data, include_req_line = False)
             # Content-Disposition类似于: form-data; name="file"; filename="\xe5\x9b\xbe.jpg"
             content_type, disposition = parse_line(info["Content-Disposition"], use_eval=True)
             idx = data.find(b"\r\n\r\n")
@@ -379,10 +406,13 @@ onclick="window.history.back();">返回</a>
                 os.makedirs(UPLOAD_PATH,exist_ok=True)
                 if len(data) > MAX_FILE_SIZE:
                     log_addr("尝试提交过大的文件:",disposition["filename"],
-                          convert_size(len(data)))
+                             convert_size(len(data)))
                     title = "提交失败"
-                    msg = f"提交失败，最大只能上传 {convert_size(MAX_FILE_SIZE)} 的文件"
-                    return HEAD_413 + template.format(title=title,msg=msg).encode()
+                    msg = f"提交失败，最大仅允许 {convert_size(MAX_FILE_SIZE)} 的文件"
+                    return Response(STATUS_413, {}, template.format(title=title,msg=msg).encode())
+                if "/" in disposition["filename"] or "\\" in disposition["filename"]:
+                    log_addr("无效路径:",disposition["filename"])
+                    return Response(STATUS_413)
 
                 filename = os.path.join(UPLOAD_PATH,disposition["filename"])
                 with open(filename,"wb") as f:
@@ -396,45 +426,42 @@ onclick="window.history.back();">返回</a>
 
     else:
         if len(content)<length: # post含有多个tcp数据包时
-            return HEAD_100 # 让客户端继续发送数据
+            return Response(STATUS_100) # 让客户端继续发送数据
         else:
-            form=parse_qs(content.decode("utf-8"),
-                          keep_blank_values=True,encoding="utf-8")
+            form = parse_qs(content.decode("utf-8"),
+                            keep_blank_values=True,encoding="utf-8")
 
     log_addr("提交数据:",form)
 
     title = msg = "提交成功"
-    return HEAD_OK + template.format(title=title,msg=msg).encode()
+    return Response(STATUS_OK, {}, template.format(title=title,msg=msg).encode())
 
-def get_request_info(data: bytes, has_head = True):
-    # 获取请求头部信息，首行存入req_head字符串，其他信息存入字典req_info
+def get_request_info(data: bytes, include_req_line = True):
+    # 获取请求头部信息，首行存入req_line字符串，其他信息存入字典req_head
     lines = data.splitlines()
-    if has_head:
-        req_head = lines.pop(0).decode("utf-8", errors="backslashreplace")
+    if include_req_line:
+        req_line = lines.pop(0).decode("utf-8", errors="backslashreplace")
     else:
-        req_head = None
+        req_line = None
 
-    req_info = {}
+    req_head = {}
     for line in lines:
         if not line:break # 两个空行表示开头的结束
         line = line.decode("utf-8", errors="backslashreplace")
         lst = line.split(':', 1)
         try:
             key, value = lst[0].strip(), lst[1].strip()
-            req_info[key] = value
+            req_head[key] = value
         except (ValueError, IndexError): # 不是请求头信息时
             pass
-    return req_head,req_info
+    return req_line,req_head
 
-def handle_get(req_head,req_info):
-    url=unquote(req_head.split(' ')[1])
-    direc,query,fragment=parse_head(req_head)
-    if "Range" in req_info: # 断点续传
-        range_=req_info["Range"].split("=",1)[1]
-        start,end=range_.split("-")
-        start = int(start) if start else None
-        end = int(end)+1 if end else None
-        log_addr("访问URL: %s (从 %s 到 %s 断点续传)" % (url,
+def handle_get(req_line,req_head):
+    url=unquote(req_line.split(' ')[1])
+    direc,query,fragment=parse_head(req_line)
+    if "Range" in req_head: # 断点续传
+        start, end = parse_range(req_head["Range"])
+        log_addr("访问URL: {} (从 {} 到 {} 断点续传)".format(url,
             convert_size(start) if start is not None else None,
             convert_size(end) if end is not None else "末尾"))
         return getcontent(direc,query,fragment,start,end) # end索引为包含
@@ -442,55 +469,83 @@ def handle_get(req_head,req_info):
         log_addr("访问URL:",url)
         return getcontent(direc,query,fragment) # 获取目录的数据
 
-def handle_client(sock, address):# 处理客户端请求
-    try:raw = sock.recv(RECV_LENGTH)
-    except ConnectionError as err:
-        log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
-        return
-    if not raw:return # 忽略空数据
+def handle_client(sock: socket.socket):# 处理客户端请求
+    sock.settimeout(TIMEOUT)
+    keep_alive = True
+    
+    while keep_alive:
+        try:
+            raw = sock.recv(RECV_LENGTH)
+        except (ConnectionError, TimeoutError) as err:
+            log_addr(f"连接异常 ({type(err).__name__}): {err}")
+            break
+        if not raw: break # 忽略空数据
 
-    req_head,req_info = get_request_info(raw)
-    log_addr(f"{req_head!r} {req_info}", file=log_file_reqheader) # 记录请求头
+        req_line,req_head = get_request_info(raw)
+        if req_head.get("Connection", "").lower() == 'close':
+            keep_alive = False
+        log_addr(f"{req_line!r} {req_head}", file=_log_file_reqhead) # 记录请求头
 
-     # 获取响应数据，response可以为bytes类型，或一个生成器
-    if req_head.startswith("POST"): # POST请求
-        response=handle_post(sock,req_head,req_info,raw.splitlines()[-1])
-    else: # GET请求
-        response=handle_get(req_head,req_info)
+        # 获取响应数据，response可以为bytes类型，或一个生成器
+        if raw.startswith(b"POST"): # POST请求
+            response = handle_post(sock,req_head,raw.splitlines()[-1])
+        else: # GET请求
+            response = handle_get(req_line,req_head)
 
-    try:send_response(sock,response,address) # 向客户端分段发送响应数据
-    except ConnectionError as err:
-        log_addr("连接异常 (%s): %s" % (type(err).__name__,str(err)))
-    sock.close() # 关闭客户端连接
+        try:
+            if keep_alive:
+                response.head.update({"Connection": "keep-alive",
+                                      "Keep-Alive": f"timeout={TIMEOUT}"})
+            send_response(sock, response) # 向客户端分段发送响应数据
+        except (ConnectionError, TimeoutError) as err:
+            log_addr(f"连接异常 ({type(err).__name__}): {err}")
+            break
 
 def handle_client_thread(sock, address): # 仅用于发生异常时输出错误信息
-    cur_address.addr = address
-    try:handle_client(sock, address)
+    _cur_address.addr = address
+    try:
+        handle_client(sock)
     except Exception:
         traceback.print_exc()
+    finally:
         try:sock.close()
         except Exception:pass
 
 def main():
-    global log_file_reqheader
-    os.makedirs(LOG_PATH,exist_ok=True)
-    log_file=AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
-    log_file.write("\n") # 插入空行，分割上次的日志
-    sys.stdout=RedirectedOutput(log_file,sys.stdout) # 重定向输出
-    log_file_err=AutoFlushWrapper(open(LOG_FILE_ERR,"a",encoding="utf-8"),
-                                  FLUSH_INTERVAL)
-    log_file_err.write(f"\n{time.asctime()}:\n")
-    sys.stderr=RedirectedOutput(log_file_err,sys.stderr)
-    log_file_reqheader=AutoFlushWrapper(open(LOG_FILE_HEADER,"a",encoding="utf-8"),
-                                     HEADER_FLUSH_INTERVAL) # 记录请求头的日志
+    global _log_file_reqhead, _send_speed, _server_root_dir
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root-dir')
+    parser.add_argument('--disable-all-logs', action='store_true')
+    parser.add_argument('--disable-request-header-log', action='store_true')
+    parser.add_argument('--send-speed', type=int)
+    parser.add_argument('port', nargs='?', type=int)
+    args = parser.parse_args()
+    _server_root_dir = args.root_dir or os.getcwd()
+    if args.send_speed is not None:
+        _send_speed = args.send_speed
+    if not args.disable_all_logs:
+        os.makedirs(LOG_PATH,exist_ok=True)
+        log_file = AutoFlushWrapper(open(LOG_FILE,"a",encoding="utf-8"),FLUSH_INTERVAL)
+        log_file.write("\n") # 插入空行，分割上次的日志
+        sys.stdout = RedirectedOutput(log_file,sys.stdout) # 重定向输出
+        log_file_err = AutoFlushWrapper(open(LOG_FILE_ERR,"a",encoding="utf-8"),
+                                        FLUSH_INTERVAL)
+        log_file_err.write(f"\n{time.asctime()}:\n")
+        sys.stderr = RedirectedOutput(log_file_err,sys.stderr)
+        if not args.disable_request_header_log:
+            _log_file_reqhead = AutoFlushWrapper(
+                open(LOG_FILE_HEADS,"a",encoding="utf-8"),
+                HEADER_FLUSH_INTERVAL) # 记录请求头的日志
 
     host = socket.gethostname()
-    port=int(sys.argv[1]) if len(sys.argv)==2 else 80 # 80为HTTP的默认端口
+    port = args.port if args.port is not None else 80 # 80为HTTP的默认端口
     ips = socket.gethostbyname_ex(host)[2] # 或socket.gethostbyname(host)
-    print(f"已在 {time.asctime()} 启动服务器")
-    print("服务器的IP:",ips)
+    print(f"已在 {time.asctime()} 启动服务端")
+    print("服务端的IP:", ips)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
     sock.bind(("", port))
     sock.listen(MAX_WAITING_CONNECTIONS) # 监听
 
@@ -499,9 +554,12 @@ def main():
             while True:
                 client_sock, address = sock.accept()
                 executor.submit(handle_client_thread, client_sock, address)
+        except KeyboardInterrupt:
+            print("已停止服务端")
         finally:
-            sock.close()
             sys.stdout.flush();sys.stderr.flush()
-            log_file_reqheader.flush()
+            if _log_file_reqhead is not None:
+                _log_file_reqhead.flush()
+            sock.close()
 
 if __name__ == "__main__":main()

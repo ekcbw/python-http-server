@@ -2,20 +2,19 @@
 
 这是一个轻量级的Python HTTP文件服务器，用于取代python自带的`http.server`模块，基于`socket`模块提供的TCP/IP实现了HTTP协议。  
 支持目录显示、文件下载、断点续传和下载限速、表单提交和文件上传，以及`Content-Type`和编码检测等功能，适合搭建一个小型网站。  
-服务器还应用`mimetypes`库，自动根据扩展名判断文件的`Content-Type`，并基于`chardetect`库自动检测文件编码；  
+服务器还应用`mimetypes`库，自动根据扩展名判断文件的`Content-Type`，并基于`chardet`库自动检测文件编码；  
 此外服务器实现了分块发送响应数据，实现了限制下载速度和断点续传功能，适合传输大文件，并能处理POST请求提交的表单和文件。  
 
 ## 用法
 
 1. **启动服务器**：
-   直接运行`http_file_server.py`即可：
    ```bash
    python http_file_server.py <可选的端口号，如8080>
    ```
    这将启动一个监听于8080端口的HTTP文件服务器，可通过`127.0.0.1:8080`访问。如果未指定端口号，默认为HTTP使用的80。
 
 2. **访问文件**：
-   服务器的根目录默认为当前的**工作路径**，例如访问：
+   服务器的根目录可用`--root-dir`指定。若未指定，默认为当前的**工作路径**，例如访问：
    ```
    http://127.0.0.1/path/index.html
    ```
@@ -25,7 +24,7 @@
 
 3. **日志记录**：
    服务器日志默认记录在`http_file_server.py`同一目录下的`server.log`和`server_err.log`中，并支持延迟刷新(flush)，确保服务器意外停止不会导致日志丢失，同时避免了每次写入都刷新引发的性能问题。  
-   此外，服务器还会在`request_headers.log`存档每个请求的请求头。  
+   此外，服务器还会在`request_heads.log`存档每个请求的请求头。  
 
 ## 功能
 
@@ -48,20 +47,19 @@
 
 This is a lightweight Python HTTP file server designed to replace Python's built-in `http.server` module. It implements the HTTP protocol entirely based on the TCP/IP stack provided by the `socket` module.  
 The server supports directory listing, file downloading, resume downloads (range requests), download speed limiting, form submission, and file uploads. It also provides `Content-Type` detection and character encoding detection, making it suitable for setting up a small website.  
-Additionally, the server uses the `mimetypes` library to automatically determine a file's `Content-Type` based on its extension and leverages the `chardetect` library to automatically detect file encoding.  
+Additionally, the server uses the `mimetypes` library to automatically determine a file's `Content-Type` based on its extension and leverages the `chardet` library to automatically detect file encoding.  
 The server implements chunked data transmission to support download speed limiting and resume downloads, making it ideal for transferring large files. It can also handle POST requests for form submissions and file uploads.
 
 ## Usage
 
 1. **Starting the Server**:
-   Just run `http_file_server.py` directly:
    ```bash
    python http_file_server.py <optional port number, e.g. 8080>
    ```
    This will start an HTTP file server listening on port 8080, accessible via `127.0.0.1:8080`. If no port number is specified, the default HTTP port (80) will be used.
 
 2. **Accessing Files**:
-   The server's root directory defaults to the current **working directory**. For example, accessing:
+   The server's root directory can be specified via `--root-dir` and defaults to the current **working directory**. For example, accessing:
    ```
    http://127.0.0.1/path/index.html
    ```
@@ -71,7 +69,7 @@ The server implements chunked data transmission to support download speed limiti
 
 3. **Logging**:
    By default, server logs are stored in the same directory as `http_file_server.py` under `server.log` and `server_err.log`. The server supports delayed flushing to ensure that logs are not lost in case of an unexpected shutdown, while also avoiding performance issues caused by frequent flushes.  
-   In addition, the server will archive the headers of each request in `request_headers.log`.  
+   In addition, the server will archive the headers of each request in `request_heads.log`.  
 
 ## Features
 

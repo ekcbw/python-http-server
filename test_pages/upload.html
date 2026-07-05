@@ -9,16 +9,20 @@
     <h2>上传文件</h2>
     <form action="/upload" method="POST" enctype="multipart/form-data">
         <div>
-            <label for="file">选择文件:</label>
+            <label for="file">文件:</label>
             <input type="file" id="file" name="file" required>
         </div>
         <div>
-            <input type="radio" id="option1" name="vote" value="选项1" required>
-            <label for="option1">选项1</label>
+            <input type="radio" id="input-text" name="filetype" value="text" required>
+            <label for="input-text">文本</label>
         </div>
         <div>
-            <input type="radio" id="option2" name="vote" value="选项2">
-            <label for="option2">选项2</label>
+            <input type="radio" id="input-image" name="filetype" value="image">
+            <label for="input-image">图片</label>
+        </div>
+        <div>
+            <input type="radio" id="input-other" name="filetype" value="other">
+            <label for="input-other">其他</label>
         </div>
         <button type="submit">上传</button>
     </form>
